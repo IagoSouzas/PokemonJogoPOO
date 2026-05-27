@@ -1,7 +1,6 @@
 package JogoPokemon.service;
 
 import JogoPokemon.repository.PokemonRepository;
-import JogoPokemon.service.BatalhaService.Resultado;
 
 import java.sql.SQLException;
 import java.util.List;
@@ -9,9 +8,9 @@ import java.util.Map;
 import java.util.Scanner;
 
 /**
- * Orquestra a Fase 3: escolha do inicial, loop de menu, batalhas e pós-batalha (XP + evolução).
+ * Orquestra a Fase 3: escolha do inicial, loop de menu, batalhas, rotas e pós-batalha (XP + evolução).
  * <p>
- * Não implementa rotas (Fase 4 — outro integrante). Oponente é sorteado do catálogo por enquanto.
+ * As rotas agora vivem em `service/Rota.java`, seguindo a mesma persistência em H2 do restante do jogo.
  * <p>
  * Save do jogo: dados ficam nas tabelas jogador / pokemon_jogador; ao reiniciar, carregarJornada()
  * pergunta se deseja continuar.
@@ -22,6 +21,7 @@ public class JogoService {
     private final BatalhaService batalhaService;
     private final XpService xpService;
     private final EvolucaoService evolucaoService;
+    private final Rota rotaService;
     private final Scanner scanner;
 
     public JogoService(PokemonRepository repository, Scanner scanner) {
@@ -30,6 +30,7 @@ public class JogoService {
         this.batalhaService = new BatalhaService(repository);
         this.xpService = new XpService(repository);
         this.evolucaoService = new EvolucaoService(repository);
+        this.rotaService = new Rota(repository, batalhaService, xpService, evolucaoService, scanner);
     }
 
     public void iniciar() throws SQLException {
@@ -90,21 +91,27 @@ public class JogoService {
         boolean ativo = true;
         while (ativo && pokemon != null && (Integer) pokemon.get("hp_atual") > 0) {
             pokemon = repository.buscarPokemonJogadorAtivo(jogadorId);
+            Map<String, Object> estadoRota = repository.buscarEstadoRotaJogador(jogadorId);
             System.out.println("\n══ " + pokemon.get("nome") + " Nv." + pokemon.get("nivel")
                     + " | HP:" + pokemon.get("hp_atual") + "/" + pokemon.get("hp_max")
                     + " | Poções:" + repository.getPocoes(jogadorId) + " ══");
-            System.out.println("1. Batalhar (oponente aleatório)");
-            System.out.println("2. Ver status");
-            System.out.println("3. Sair");
+            System.out.println("Rota atual: " + valor(estadoRota, "rota_atual")
+                    + " | Tentativas: " + valor(estadoRota, "rota_tentativas")
+                    + " | Concluída até: " + valor(estadoRota, "rota_concluida"));
+            System.out.println("1. Batalhar na rota");
+            System.out.println("2. Escolher rota");
+            System.out.println("3. Ver status");
+            System.out.println("4. Sair");
             System.out.print("Opção: ");
             int op;
             try { op = Integer.parseInt(scanner.nextLine().trim()); }
             catch (NumberFormatException e) { op = 0; }
 
             switch (op) {
-                case 1 -> pokemon = batalhar(jogadorId, pokemon);
-                case 2 -> imprimirStatus(pokemon);
-                case 3 -> ativo = false;
+                case 1 -> pokemon = batalharNaRota(jogadorId, pokemon);
+                case 2 -> rotaService.escolherRota(jogadorId);
+                case 3 -> imprimirStatus(pokemon);
+                case 4 -> ativo = false;
                 default -> System.out.println("Opção inválida.");
             }
         }
@@ -112,35 +119,15 @@ public class JogoService {
     }
 
     /**
-     * Sequência após batalha: vitória → XP → evolução; derrota → cura total; fuga → nada.
+     * Sequência após batalha na rota: vitória → XP → evolução + conclusão da rota; derrota → perda de tentativa.
      */
-    private Map<String, Object> batalhar(int jogadorId, Map<String, Object> pokemon) throws SQLException {
-        int nivel = (Integer) pokemon.get("nivel");
-        Map<String, Object> inimigo = repository.buscarOponenteAleatorio(nivel);
-        if (inimigo == null) {
-            System.out.println("Nenhum oponente disponível.");
+    private Map<String, Object> batalharNaRota(int jogadorId, Map<String, Object> pokemon) throws SQLException {
+        Map<String, Object> estadoRota = repository.buscarEstadoRotaJogador(jogadorId);
+        if (estadoRota == null || valor(estadoRota, "rota_atual") <= 0) {
+            System.out.println("Escolha uma rota antes de batalhar.");
             return pokemon;
         }
-        System.out.println("Um " + inimigo.get("nome") + " selvagem (Nv." + nivel + ") apareceu!");
-
-        try {
-            Resultado r = batalhaService.executar(scanner, jogadorId, pokemon, inimigo);
-            pokemon = repository.buscarPokemonJogadorAtivo(jogadorId);
-
-            if (r == Resultado.VITORIA) {
-                xpService.processarVitoria(pokemon);
-                evolucaoService.verificarEvolucao(pokemon);
-                repository.incrementarInimigosDerrotados(jogadorId);
-                pokemon = repository.buscarPokemonJogadorAtivo(jogadorId);
-            } else if (r == Resultado.DERROTA) {
-                int hpMax = (Integer) pokemon.get("hp_max");
-                repository.atualizarHpPokemonJogador((Integer) pokemon.get("id"), hpMax);
-                pokemon.put("hp_atual", hpMax);
-                System.out.println("Recuperou no Centro Pokémon.");
-            }
-        } catch (SQLException e) {
-            System.out.println("Erro na batalha: " + e.getMessage());
-        }
+        rotaService.executarRota(jogadorId, pokemon);
         return repository.buscarPokemonJogadorAtivo(jogadorId);
     }
 
@@ -154,5 +141,10 @@ public class JogoService {
             System.out.println("  " + m.get("nome") + " PP:" + m.get("pp_atual") + "/" + m.get("pp_max")
                     + " [" + m.get("tipo") + "] Prec:" + m.get("precisao") + "%");
         }
+    }
+
+    private int valor(Map<String, Object> mapa, String chave) {
+        if (mapa == null || mapa.get(chave) == null) return 0;
+        return ((Number) mapa.get(chave)).intValue();
     }
 }

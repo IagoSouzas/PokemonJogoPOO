@@ -72,7 +72,8 @@ public class PokemonRepository implements AutoCloseable {
                     CREATE TABLE IF NOT EXISTS jogador (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         nome VARCHAR(200) NOT NULL, pocao INT DEFAULT 5,
-                        inimigos_derrotados INT DEFAULT 0, rota_atual INT DEFAULT 0)
+                        inimigos_derrotados INT DEFAULT 0, rota_atual INT DEFAULT 0,
+                        rota_tentativas INT DEFAULT 3, rota_concluida INT DEFAULT 0)
                     """);
             st.execute("""
                     CREATE TABLE IF NOT EXISTS pokemon_jogador (
@@ -90,6 +91,9 @@ public class PokemonRepository implements AutoCloseable {
                         FOREIGN KEY (id_pokemon_jogador) REFERENCES pokemon_jogador(id),
                         FOREIGN KEY (id_movimento) REFERENCES movimento_pkm(id))
                     """);
+            st.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS rota_atual INT DEFAULT 0");
+            st.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS rota_tentativas INT DEFAULT 3");
+            st.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS rota_concluida INT DEFAULT 0");
         }
     }
 
@@ -352,8 +356,25 @@ public class PokemonRepository implements AutoCloseable {
             jornada.put("nome", rs.getString("nome"));
             jornada.put("pocao", rs.getInt("pocao"));
             jornada.put("inimigos_derrotados", rs.getInt("inimigos_derrotados"));
+            jornada.put("rota_atual", rs.getInt("rota_atual"));
+            jornada.put("rota_tentativas", rs.getInt("rota_tentativas"));
+            jornada.put("rota_concluida", rs.getInt("rota_concluida"));
             jornada.put("pokemon_jogador", buscarPokemonJogadorAtivo(jogadorId));
             return jornada;
+        }
+    }
+
+    public Map<String, Object> buscarEstadoRotaJogador(int jogadorId) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT rota_atual, rota_tentativas, rota_concluida FROM jogador WHERE id = ?")) {
+            ps.setInt(1, jogadorId);
+            ResultSet rs = ps.executeQuery();
+            if (!rs.next()) return null;
+            Map<String, Object> estado = new HashMap<>();
+            estado.put("rota_atual", rs.getInt("rota_atual"));
+            estado.put("rota_tentativas", rs.getInt("rota_tentativas"));
+            estado.put("rota_concluida", rs.getInt("rota_concluida"));
+            return estado;
         }
     }
 
@@ -433,6 +454,47 @@ public class PokemonRepository implements AutoCloseable {
         }
     }
 
+    public Map<String, Object> buscarOponenteAleatorioPorRota(int rota) throws SQLException {
+        int nivelMinimo;
+        int nivelMaximo;
+        switch (rota) {
+            case 1 -> {
+                nivelMinimo = 1;
+                nivelMaximo = 7;
+            }
+            case 2 -> {
+                nivelMinimo = 8;
+                nivelMaximo = 15;
+            }
+            case 3 -> {
+                nivelMinimo = 16;
+                nivelMaximo = 25;
+            }
+            default -> {
+                return null;
+            }
+        }
+
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT * FROM pokemon WHERE eh_inicial = FALSE ORDER BY RAND() LIMIT 1")) {
+            ResultSet rs = ps.executeQuery();
+            if (!rs.next()) return null;
+            Map<String, Object> oponente = mapPokemon(rs);
+            int nivelEscolhido = nivelMinimo + (int) (Math.random() * (nivelMaximo - nivelMinimo + 1));
+            oponente.put("nivel", nivelEscolhido);
+            oponente.put("hp_max", calcularHpMax((Integer) oponente.get("vida"), nivelEscolhido));
+            oponente.put("hp_atual", oponente.get("hp_max"));
+            List<Map<String, Object>> movs = listarMovimentos((Integer) oponente.get("id"));
+            for (Map<String, Object> mov : movs) {
+                mov.put("pp_atual", mov.get("pp_max"));
+            }
+            oponente.put("movimentos", movs);
+            oponente.put("ataque_base", oponente.get("ataque"));
+            oponente.put("defesa_base", oponente.get("defesa"));
+            return oponente;
+        }
+    }
+
     public void atualizarHpPokemonJogador(int pokemonJogadorId, int hp) throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement(
                 "UPDATE pokemon_jogador SET hp_atual = ? WHERE id = ?")) {
@@ -477,6 +539,39 @@ public class PokemonRepository implements AutoCloseable {
         try (PreparedStatement ps = connection.prepareStatement(
                 "UPDATE jogador SET inimigos_derrotados = inimigos_derrotados + 1 WHERE id = ?")) {
             ps.setInt(1, jogadorId);
+            ps.executeUpdate();
+        }
+    }
+
+    public void atualizarEstadoRotaJogador(int jogadorId, int rotaAtual, int tentativas, int rotaConcluida) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "UPDATE jogador SET rota_atual = ?, rota_tentativas = ?, rota_concluida = ? WHERE id = ?")) {
+            ps.setInt(1, rotaAtual);
+            ps.setInt(2, tentativas);
+            ps.setInt(3, rotaConcluida);
+            ps.setInt(4, jogadorId);
+            ps.executeUpdate();
+        }
+    }
+
+    public int diminuirTentativaRotaJogador(int jogadorId) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "UPDATE jogador SET rota_tentativas = CASE WHEN rota_tentativas > 0 THEN rota_tentativas - 1 ELSE 0 END WHERE id = ?")) {
+            ps.setInt(1, jogadorId);
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = connection.prepareStatement("SELECT rota_tentativas FROM jogador WHERE id = ?")) {
+            ps.setInt(1, jogadorId);
+            ResultSet rs = ps.executeQuery();
+            return rs.next() ? rs.getInt("rota_tentativas") : 0;
+        }
+    }
+
+    public void concluirRotaJogador(int jogadorId, int rotaConcluida) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "UPDATE jogador SET rota_concluida = GREATEST(rota_concluida, ?), rota_atual = 0, rota_tentativas = 3 WHERE id = ?")) {
+            ps.setInt(1, rotaConcluida);
+            ps.setInt(2, jogadorId);
             ps.executeUpdate();
         }
     }

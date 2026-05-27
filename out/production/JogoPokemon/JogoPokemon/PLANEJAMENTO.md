@@ -13,7 +13,7 @@ Documento oficial do projeto. **Não utiliza pacote `model/`** — os dados fica
 | API externa | [PokeAPI](https://pokeapi.co/) — apenas na **carga inicial** (Fase 1) |
 | Parse JSON | **Gson** (`lib/gson-2.11.0.jar`) — sem parser manual/recursivo |
 | Pacote `model/` | **Não usar** — remover/ignorar classes `Pokemon`, `Movimento`, `Jogador`, `Tipo` |
-| Rotas de oponentes | **Outro integrante** — fora do escopo atual |
+| Rotas de oponentes | **Integrado no `service/`** — em implementação neste grupo |
 
 ---
 
@@ -57,7 +57,7 @@ int hp = root.getAsJsonArray("stats").asList().stream()
 | **1** | Criar tabelas (SQL), buscar 150 Pokémon + 3 iniciais na API, cadastrar evoluções e movimentos | Este grupo | **Concluída** |
 | **2** | Consultas SQL para leitura do catálogo (sem chamar API) | Este grupo | **Concluída** |
 | **3** | Básico do jogo: **batalha**, **evolução**, **cálculo de XP** (+ poção e fuga) | Este grupo | **Concluída** |
-| **4** | Rotas pré-definidas com oponentes aleatórios no nível do jogador | **Outro integrante** | Pendente |
+| **4** | Rotas pré-definidas com oponentes aleatórios no nível do jogador | Este grupo | Em andamento |
 
 ---
 
@@ -226,6 +226,7 @@ JogoPokemon/
 ├── repository/
 │   └── PokemonRepository.java  # SQL: criar tabelas, INSERT, SELECT, UPDATE
 ├── service/                  # (Fase 3)
+│   ├── Rota.java            # rotas progressivas, 3 tentativas e seleção salva
 │   ├── BatalhaService.java   # turnos, dano, precisão, PP, poção, fuga
 │   ├── EvolucaoService.java  # nível 6 e 14, consulta evolucao_pkm
 │   └── XpService.java        # ganho de XP e subida de nível
@@ -293,11 +294,12 @@ Implementar **apenas** o núcleo abaixo. Rotas e ordem dos oponentes ficam para 
 - Ao atingir **nível 14** → consultar `evolucao_pkm` ordem 2.
 - Stats e movimentos vêm do catálogo já cadastrado.
 
-### Fora do escopo (outro integrante)
+### Rotas (agora em `service/`)
 
-- Tabela `rota` / `rota_pokemon`
-- Progressão por rotas pré-definidas
-- Sorteio de oponente aleatório por rota (nível compatível com o jogador — regra definida pelo integrante de rotas)
+- Sistema de rota progressiva com 3 tentativas por rota
+- Escolha de rota salva no `jogador`
+- Conclusão da rota salva no banco
+- Oponente sorteado por faixa de nível da rota
 
 ---
 
@@ -336,8 +338,8 @@ Depois — Fase 3 (este grupo)
   10. EvolucaoService
   11. SQL de save/load do jogador
 
-Depois — Fase 4 (outro integrante)
-  12. Rotas pré-definidas + oponente aleatório por nível
+Depois — Fase 4 (este grupo)
+    12. `Rota.java` em `service/` + persistência da escolha/conclusão
 ```
 
 ---
@@ -407,11 +409,12 @@ Execução concluída em **21/05/2026**. Validação no banco: **153 Pokémon**,
 - [x] Save implícito no banco (jogador + pokemon_jogador + movimento_jogador)
 - [x] `Main` com menu: 1=Carga, 2=Consultas, 3=Jogar, 4=Sair
 
-### Fase 4 — Rotas (outro integrante)
+### Fase 4 — Rotas (em implementação)
 
-- [ ] Tabela `rota` / `rota_pokemon`
-- [ ] Progressão por rotas pré-definidas
-- [ ] Oponente por rota com nível do jogador
+- [x] `Rota.java` movida para `service/`
+- [x] Regras combinadas aplicadas: progressão 1 → 2 → 3 e 3 tentativas por rota
+- [ ] Persistência completa do fluxo de rota no banco
+- [ ] Integração final no menu do jogo
 
 ### Arquivos do projeto
 
@@ -427,6 +430,7 @@ Execução concluída em **21/05/2026**. Validação no banco: **153 Pokémon**,
 | `service/EvolucaoService.java` | Evolução |
 | `service/TipoEfetividade.java` | Multiplicador de tipos |
 | `service/JogoService.java` | Fluxo do jogador |
+| `service/Rota.java` | Rotas, seleção e batalha por faixa |
 | `lib/h2-2.4.240.jar` | Banco H2 |
 | `lib/gson-2.11.0.jar` | JSON |
 

@@ -32,7 +32,7 @@ public class Main {
                 System.out.println("╚══════════════════════════════════════╝");
                 System.out.println("1. Popular catálogo (Fase 1 — PokeAPI)");
                 System.out.println("2. Demonstrar consultas SQL (Fase 2)");
-                System.out.println("3. Jogar (Fase 3 — batalha, XP, evolução)");
+                System.out.println("3. Jogar (Fase 3 — batalha, XP, evolução, rotas)");
                 System.out.println("4. Sair");
                 System.out.print("Opção: ");
 
